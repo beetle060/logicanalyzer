@@ -4,12 +4,12 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using AvaloniaEdit.Document;
 using LogicAnalyzer.Classes;
 using LogicAnalyzer.Controls;
 using LogicAnalyzer.Extensions;
-using Newtonsoft.Json;
 using SharedDriver;
 using System;
 using System.Collections.Generic;
@@ -35,6 +35,16 @@ namespace LogicAnalyzer.Dialogs
         public CaptureSession SelectedSettings { get; private set; }
 
         string settingsFile;
+        bool applyingProject;
+        string? projectFileName;
+        static readonly FilePickerFileType ProjectFileType = new("LogicAnalyzer projects")
+        {
+            Patterns = ["*.laproj"]
+        };
+        static readonly FilePickerFileType ChannelListFileType = new("JSON channel lists")
+        {
+            Patterns = ["*.json"]
+        };
 
         public bool DisableFast 
         {
@@ -53,6 +63,8 @@ namespace LogicAnalyzer.Dialogs
             btnAccept.Click += btnAccept_Click;
             btnCancel.Click += btnCancel_Click;
             btnReset.Click += btnReset_Click;
+            btnLoadProject.Click += LoadProject_Click;
+            btnSaveProject.Click += SaveProject_Click;
             rbTriggerTypeEdge.IsCheckedChanged += rbTriggerTypeEdge_CheckedChanged;
             nudFrequency.ValueChanged += NudFrequency_ValueChanged;
             ckBlast.IsCheckedChanged += ckBlast_CheckedChanged;
@@ -255,7 +267,7 @@ namespace LogicAnalyzer.Dialogs
 
             panel.Children.Add(brdSel);
 
-            for (int buc = 0; buc < 8; buc++)
+            for (int buc = 0; buc < 8 && FirstChannel + buc < driver.ChannelCount; buc++)
             {
                 var channel = new ChannelSelector { ChannelNumber = (byte)(FirstChannel + buc) };
                 panel.Children.Add(channel);
@@ -313,12 +325,14 @@ namespace LogicAnalyzer.Dialogs
 
         private void Channel_Deselected(object? sender, EventArgs e)
         {
-            CheckMode();
+            if (!applyingProject)
+                CheckMode();
         }
 
         private void Channel_Selected(object? sender, EventArgs e)
         {
-            CheckMode();
+            if (!applyingProject)
+                CheckMode();
         }
 
         private void CheckMode()
@@ -352,7 +366,7 @@ namespace LogicAnalyzer.Dialogs
             {
                 foreach (var channel in settings.CaptureChannels)
                 {
-                    if (channel.ChannelNumber >= captureChannels.Length)
+                    if (channel.ChannelNumber < 0 || channel.ChannelNumber >= captureChannels.Length)
                         continue;
 
                     captureChannels[channel.ChannelNumber].Enabled = true;
@@ -382,7 +396,8 @@ namespace LogicAnalyzer.Dialogs
 
                             rbTriggerTypePattern.IsChecked = false;
                             rbTriggerTypeEdge.IsChecked = true;
-                            triggerChannels[settings.TriggerChannel].IsChecked = true;
+                            if (settings.TriggerChannel >= 0 && settings.TriggerChannel < triggerChannels.Length)
+                                triggerChannels[settings.TriggerChannel].IsChecked = true;
                             ckNegativeTrigger.IsChecked = settings.TriggerInverted;
                             ckBurst.IsChecked = settings.LoopCount > 0;
                             nudBurstCount.Value = settings.LoopCount > 0 ? settings.LoopCount + 1 : 2;
@@ -435,6 +450,145 @@ namespace LogicAnalyzer.Dialogs
                     }
                 }
             }
+        }
+
+        private async void LoadProject_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Load project",
+                    FileTypeFilter = [
+                        new FilePickerFileType("Projects and channel lists") { Patterns = ["*.laproj", "*.json"] },
+                        ProjectFileType, ChannelListFileType
+                    ]
+                });
+                if (files.Count == 0)
+                    return;
+
+                using var file = files[0];
+                await using var input = await file.OpenReadAsync();
+                var project = await CaptureProject.LoadAsync(input, captureChannels.Length);
+                ApplyProject(project);
+                projectFileName = Path.GetFileNameWithoutExtension(file.Name);
+            }
+            catch (Exception ex)
+            {
+                await this.ShowError("Cannot load project", ex.Message);
+            }
+        }
+
+        private async void SaveProject_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                using var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "Save project",
+                    DefaultExtension = "laproj",
+                    SuggestedFileName = projectFileName,
+                    FileTypeChoices = [ProjectFileType],
+                    ShowOverwritePrompt = true
+                });
+                if (file == null)
+                    return;
+
+                var path = file.TryGetLocalPath()
+                    ?? throw new IOException("Choose a local folder to save the project.");
+
+                await ReadProjectFromControls().SaveAsync(path);
+                projectFileName = Path.GetFileNameWithoutExtension(path);
+            }
+            catch (Exception ex)
+            {
+                await this.ShowError("Cannot save project", ex.Message);
+            }
+        }
+
+        private CaptureProject ReadProjectFromControls()
+        {
+            var channels = captureChannels.Select(c => new ProjectChannel(
+                c.ChannelNumber, c.ChannelName ?? "", c.Enabled, c.ChannelColor)).ToArray();
+            var acquisition = new ProjectAcquisition(
+                driver.DriverType, (int)(nudFrequency.Value ?? driver.MinFrequency),
+                (int)(nudPreSamples.Value ?? nudPreSamples.Minimum),
+                (int)(nudPostSamples.Value ?? nudPostSamples.Minimum),
+                rbTriggerTypePattern.IsChecked == true, Array.FindIndex(triggerChannels, c => c.IsChecked == true),
+                ckNegativeTrigger.IsChecked == true, ckBlast.IsChecked == true, ckBurst.IsChecked == true,
+                (int)(nudBurstCount.Value ?? 2), ckMeasure.IsChecked == true,
+                (int)(nudTriggerBase.Value ?? 1), txtPattern.Text ?? "", ckFastTrigger.IsChecked == true);
+            return new CaptureProject(channels, acquisition);
+        }
+
+        private void ApplyProject(CaptureProject project)
+        {
+            var acquisition = project.Acquisition;
+            if (acquisition != null)
+            {
+                bool singleDevice = driver.DriverType is AnalyzerDriverType.Serial or AnalyzerDriverType.Network;
+                bool projectSingleDevice = acquisition.DriverType is AnalyzerDriverType.Serial or AnalyzerDriverType.Network;
+                if (acquisition.DriverType != driver.DriverType && !(singleDevice && projectSingleDevice))
+                    throw new InvalidDataException("The project uses a different type of analyzer connection.");
+
+                if (acquisition.Pattern == null ||
+                    (acquisition.Blast && (!singleDevice || acquisition.PatternTrigger)) ||
+                    (singleDevice && !acquisition.PatternTrigger &&
+                        (acquisition.EdgeChannel < 0 || acquisition.EdgeChannel >= triggerChannels.Length)))
+                    throw new InvalidDataException("The project contains invalid trigger settings.");
+            }
+
+            var channels = project.Channels.ToDictionary(c => c.Number);
+            applyingProject = true;
+            try
+            {
+                foreach (var selector in captureChannels)
+                {
+                    if (channels.TryGetValue(selector.ChannelNumber, out var channel))
+                    {
+                        selector.Enabled = channel.Enabled;
+                        selector.ChannelName = channel.Name;
+                        if (acquisition != null)
+                            selector.ChannelColor = channel.Color;
+                    }
+                    else if (acquisition != null)
+                    {
+                        selector.Enabled = false;
+                        selector.ChannelName = "";
+                        selector.ChannelColor = null;
+                    }
+                }
+            }
+            finally
+            {
+                applyingProject = false;
+            }
+
+            CheckMode();
+            if (acquisition == null)
+                return;
+
+            if (driver.DriverType != AnalyzerDriverType.Emulated)
+            {
+                bool patternTrigger = driver.DriverType == AnalyzerDriverType.Multi || acquisition.PatternTrigger;
+                rbTriggerTypeEdge.IsChecked = !patternTrigger;
+                rbTriggerTypePattern.IsChecked = patternTrigger;
+                if (acquisition.EdgeChannel >= 0 && acquisition.EdgeChannel < triggerChannels.Length)
+                    triggerChannels[acquisition.EdgeChannel].IsChecked = true;
+
+                ckNegativeTrigger.IsChecked = acquisition.NegativeEdge;
+                ckBlast.IsChecked = acquisition.Blast;
+                ckBurst.IsChecked = acquisition.Burst && !acquisition.Blast;
+                nudBurstCount.Value = Math.Clamp(acquisition.BurstCount, 2, 254);
+                ckMeasure.IsChecked = acquisition.MeasureDelays && !acquisition.Blast;
+                nudTriggerBase.Value = Math.Clamp(acquisition.PatternChannel, 1, 16);
+                ckFastTrigger.IsChecked = acquisition.Fast && ckFastTrigger.IsEnabled;
+                txtPattern.Text = acquisition.Pattern;
+            }
+
+            nudFrequency.Value = Math.Clamp(acquisition.Frequency, nudFrequency.Minimum, nudFrequency.Maximum);
+            nudPreSamples.Value = Math.Clamp(acquisition.PreSamples, nudPreSamples.Minimum, nudPreSamples.Maximum);
+            nudPostSamples.Value = Math.Clamp(acquisition.PostSamples, nudPostSamples.Minimum, nudPostSamples.Maximum);
         }
 
         private async void btnAccept_Click(object? sender, RoutedEventArgs e)
@@ -568,7 +722,7 @@ namespace LogicAnalyzer.Dialogs
             settings.TriggerInverted = ckNegativeTrigger.IsChecked == true;
             settings.CaptureChannels = channelsToCapture.ToArray();
             
-            File.WriteAllText(settingsFile, JsonConvert.SerializeObject(settings));
+            AppSettingsManager.PersistSettings(settingsFile, settings);
             SelectedSettings = settings;
             this.Close(true);
         }
@@ -580,7 +734,7 @@ namespace LogicAnalyzer.Dialogs
 
         private void btnReset_Click(object? sender, EventArgs e)
         {
-            SetBlastMode(false);
+            ckBlast.IsChecked = false;
             nudFrequency.Value = driver.MaxFrequency;
             nudPreSamples.Value = 512;
             nudPostSamples.Value = 1024;
@@ -590,7 +744,9 @@ namespace LogicAnalyzer.Dialogs
             ckMeasure.IsChecked = false;
             txtPattern.Text = "";
             ckFastTrigger.IsChecked = false;
-            rbTriggerTypeEdge.IsChecked = true;
+            nudTriggerBase.Value = 1;
+            rbTriggerTypeEdge.IsChecked = driver.DriverType != AnalyzerDriverType.Multi;
+            rbTriggerTypePattern.IsChecked = driver.DriverType == AnalyzerDriverType.Multi;
 
             foreach (var channel in captureChannels)
             {
@@ -655,8 +811,6 @@ namespace LogicAnalyzer.Dialogs
                 ckBurst.IsChecked = false;
                 ckBurst.IsEnabled = false;
                 ckMeasure.IsChecked = false;
-                ckMeasure.IsEnabled = false;
-                nudBurstCount.IsEnabled = false;
 
                 lblJitter.Text = "Jitter: 0.000%";
                 brdJitter.Background = GraphicObjectsCache.GetBrush(lowJitter);

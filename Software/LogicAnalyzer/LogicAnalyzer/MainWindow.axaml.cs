@@ -1346,17 +1346,7 @@ namespace LogicAnalyzer
 
             try
             {
-                if(!await BeginCapture())
-                    return;
-
-                var settingsFile = $"cpSettings{driver.DriverType}.json";
-                var settings = session.Clone();
-                
-                foreach(var channel in settings.CaptureChannels)
-                    channel.Samples = null;
-
-                AppSettingsManager.PersistSettings(settingsFile, settings);
-
+                await BeginCapture();
             }
             finally 
             { 
