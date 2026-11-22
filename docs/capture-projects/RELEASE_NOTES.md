@@ -1,6 +1,6 @@
 # LogicAnalyzer 6.0 · Capture Projects v1
 
-This fork release adds reusable capture setups and a connector-oriented view to the LogicAnalyzer 6.0 desktop application.
+This fork release, dated 2026-11-22, adds reusable capture setups and a connector-oriented view to the LogicAnalyzer 6.0 desktop application.
 
 - **Capture projects.** Save channel names, enabled channels, colors, and capture and trigger settings in a `.laproj` file. Load and save projects from the **File** menu or **Capture settings**. You can select a project before opening the analyzer and review it before starting a capture.
 - **Channel-list import.** Load a version 2 Falcon-format JSON channel list. The importer assigns names by channel number so repeated names can be used on different channels.
