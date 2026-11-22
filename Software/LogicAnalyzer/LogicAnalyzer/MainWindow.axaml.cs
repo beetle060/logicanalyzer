@@ -611,7 +611,7 @@ namespace LogicAnalyzer
         {
             var dlg = new CaptureDialog();
             var drv = new EmulatedAnalyzerDriver(5);
-            dlg.Initialize(drv, mnuPhysicalChannelLayout.IsChecked);
+            dlg.Initialize(drv, mnuPhysicalChannelLayout.IsChecked, this);
 
             if(await dlg.ShowDialog<bool>(this))
             {
@@ -1395,7 +1395,7 @@ namespace LogicAnalyzer
         private CaptureDialog CreateCaptureSettingsDialog(AnalyzerDriverBase device)
         {
             var dialog = new CaptureDialog();
-            dialog.Initialize(device, mnuPhysicalChannelLayout.IsChecked);
+            dialog.Initialize(device, mnuPhysicalChannelLayout.IsChecked, this);
             if (lastCaptureProject is { } last && last.Device == device)
                 dialog.ApplyProject(last.Project, last.FileName);
 

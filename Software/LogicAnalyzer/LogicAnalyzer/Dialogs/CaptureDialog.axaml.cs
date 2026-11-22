@@ -137,10 +137,10 @@ namespace LogicAnalyzer.Dialogs
 
         }
 
-        public void Initialize(AnalyzerDriverBase Driver, bool physicalChannelLayout = false)
+        public void Initialize(AnalyzerDriverBase Driver, bool physicalChannelLayout = false, Window? owner = null)
         {
             driver = Driver;
-            InitializeControlArrays(physicalChannelLayout);
+            InitializeControlArrays(physicalChannelLayout, owner);
             InitializeParameters();
             LoadSettings(driver.DriverType);
             CheckMode();
@@ -198,7 +198,9 @@ namespace LogicAnalyzer.Dialogs
             {
                 pnlAllTriggers.IsVisible = false;
                 grdMainContainer.RowDefinitions = new RowDefinitions("1*");
-                MaxHeight = MinHeight = Height = 410;
+                MinHeight = Height = 410;
+                if (!CanResize)
+                    MaxHeight = 410;
                 grdBase.RowDefinitions = new RowDefinitions("1*,7*,1*");
             }
         }
@@ -273,7 +275,7 @@ namespace LogicAnalyzer.Dialogs
             return panel;
         }
 
-        private void InitializeControlArrays(bool physicalChannelLayout)
+        private void InitializeControlArrays(bool physicalChannelLayout, Window? owner)
         {
             const int picoChannels = 24;
             int channelCount = driver.ChannelCount;
@@ -291,8 +293,6 @@ namespace LogicAnalyzer.Dialogs
             for (int number = 0; number < channelCount; number++)
             {
                 var channel = new ChannelSelector { ChannelNumber = (byte)number };
-                if (usePhysicalLayout)
-                    channel.UseCompactLayout();
 
                 channel.Selected += Channel_Selected;
                 channel.Deselected += Channel_Deselected;
@@ -302,6 +302,16 @@ namespace LogicAnalyzer.Dialogs
 
             if (usePhysicalLayout)
             {
+                double preferredWidth = Width * 1.5;
+                var screen = owner?.Screens.ScreenFromWindow(owner) ?? owner?.Screens.Primary;
+                if (screen != null)
+                    preferredWidth = Math.Clamp(Math.Floor(screen.WorkingArea.Width / screen.Scaling), MinWidth, preferredWidth);
+
+                CanResize = true;
+                MaxWidth = MaxHeight = double.PositiveInfinity;
+                Width = preferredWidth;
+                channelScrollViewer.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto;
+
                 for (int firstChannel = 0; firstChannel < channelCount; firstChannel += picoChannels)
                 {
                     int middleChannel = firstChannel + picoChannels / 2;

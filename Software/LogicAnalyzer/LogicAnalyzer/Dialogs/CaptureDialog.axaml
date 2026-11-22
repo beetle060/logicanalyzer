@@ -29,7 +29,7 @@
         </StackPanel>
       </Grid>
       <Grid Grid.Row="1" RowDefinitions="15*,14*" Name="grdMainContainer">
-        <ScrollViewer Margin="10,10,10,0">
+        <ScrollViewer Name="channelScrollViewer" Margin="10,10,10,0">
           <StackPanel Orientation="Vertical" Name="pnlChannels">
 
           </StackPanel>

@@ -1,5 +1,4 @@
 using Avalonia;
-using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Media;
 using LogicAnalyzer.Classes;
@@ -66,17 +65,6 @@ namespace LogicAnalyzer.Controls
             ckEnable.Checked += CkEnable_Checked;
             ckEnable.Unchecked += CkEnable_Unchecked;
             lblColor.PointerPressed += LblColor_PointerPressed;
-        }
-
-        internal void UseCompactLayout()
-        {
-            MinWidth = MaxWidth = 72;
-            tbChannel.FontSize = 12;
-            ckEnable.Content = null;
-
-            var label = $"Enable channel {ChannelNumber + 1}";
-            AutomationProperties.SetName(ckEnable, label);
-            ToolTip.SetTip(ckEnable, label);
         }
 
         private void CkEnable_Unchecked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
