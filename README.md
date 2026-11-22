@@ -1,5 +1,15 @@
 # LogicAnalyzer
 
+## Capture Projects fork
+
+This fork of LogicAnalyzer 6.0 adds reusable capture settings and an optional channel layout that follows the connector on a 24-channel Pico analyzer. Save a setup as a `.laproj` file, then load it when you return to the same hardware or repair project.
+
+- [Build on Linux and use capture projects](docs/capture-projects/README.md)
+- [Release notes for Capture Projects v1](docs/capture-projects/RELEASE_NOTES.md)
+- [Original LogicAnalyzer wiki](https://github.com/gusmanb/logicanalyzer/wiki)
+
+## Upstream project history
+
 ## I'm back!
 
 Hey, I know the project has been under silence for a long time, but it is not abandoned, I've moved from house and has been a true nightmare.
