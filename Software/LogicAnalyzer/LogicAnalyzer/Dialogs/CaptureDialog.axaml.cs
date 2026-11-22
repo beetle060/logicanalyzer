@@ -452,26 +452,51 @@ namespace LogicAnalyzer.Dialogs
             }
         }
 
+        internal static async Task<(CaptureProject Project, string FileName)?> PickProjectAsync(Window owner)
+        {
+            var files = await owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Load project",
+                FileTypeFilter = [
+                    new FilePickerFileType("Projects and channel lists") { Patterns = ["*.laproj", "*.json"] },
+                    ProjectFileType, ChannelListFileType
+                ]
+            });
+            if (files.Count == 0)
+                return null;
+
+            using var file = files[0];
+            await using var input = await file.OpenReadAsync();
+            var project = await CaptureProject.LoadAsync(input);
+            return (project, Path.GetFileNameWithoutExtension(file.Name));
+        }
+
+        internal static async Task<string?> SaveProjectAsync(Window owner, CaptureProject project, string? suggestedFileName)
+        {
+            using var file = await owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save project",
+                DefaultExtension = "laproj",
+                SuggestedFileName = suggestedFileName,
+                FileTypeChoices = [ProjectFileType],
+                ShowOverwritePrompt = true
+            });
+            if (file == null)
+                return null;
+
+            var path = file.TryGetLocalPath()
+                ?? throw new IOException("Choose a local folder to save the project.");
+
+            await project.SaveAsync(path);
+            return Path.GetFileNameWithoutExtension(path);
+        }
+
         private async void LoadProject_Click(object? sender, RoutedEventArgs e)
         {
             try
             {
-                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = "Load project",
-                    FileTypeFilter = [
-                        new FilePickerFileType("Projects and channel lists") { Patterns = ["*.laproj", "*.json"] },
-                        ProjectFileType, ChannelListFileType
-                    ]
-                });
-                if (files.Count == 0)
-                    return;
-
-                using var file = files[0];
-                await using var input = await file.OpenReadAsync();
-                var project = await CaptureProject.LoadAsync(input, captureChannels.Length);
-                ApplyProject(project);
-                projectFileName = Path.GetFileNameWithoutExtension(file.Name);
+                if (await PickProjectAsync(this) is { } loaded)
+                    ApplyProject(loaded.Project, loaded.FileName);
             }
             catch (Exception ex)
             {
@@ -483,27 +508,18 @@ namespace LogicAnalyzer.Dialogs
         {
             try
             {
-                using var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-                {
-                    Title = "Save project",
-                    DefaultExtension = "laproj",
-                    SuggestedFileName = projectFileName,
-                    FileTypeChoices = [ProjectFileType],
-                    ShowOverwritePrompt = true
-                });
-                if (file == null)
-                    return;
-
-                var path = file.TryGetLocalPath()
-                    ?? throw new IOException("Choose a local folder to save the project.");
-
-                await ReadProjectFromControls().SaveAsync(path);
-                projectFileName = Path.GetFileNameWithoutExtension(path);
+                projectFileName = await SaveProjectAsync(this, ReadProjectFromControls(), projectFileName)
+                    ?? projectFileName;
             }
             catch (Exception ex)
             {
                 await this.ShowError("Cannot save project", ex.Message);
             }
+        }
+
+        internal (CaptureProject Project, string? FileName) GetProject()
+        {
+            return (ReadProjectFromControls(), projectFileName);
         }
 
         private CaptureProject ReadProjectFromControls()
@@ -521,8 +537,9 @@ namespace LogicAnalyzer.Dialogs
             return new CaptureProject(channels, acquisition);
         }
 
-        private void ApplyProject(CaptureProject project)
+        internal void ApplyProject(CaptureProject project, string? fileName = null)
         {
+            project.ValidateChannelCount(captureChannels.Length);
             var acquisition = project.Acquisition;
             if (acquisition != null)
             {
@@ -565,6 +582,7 @@ namespace LogicAnalyzer.Dialogs
             }
 
             CheckMode();
+            projectFileName = fileName;
             if (acquisition == null)
                 return;
 

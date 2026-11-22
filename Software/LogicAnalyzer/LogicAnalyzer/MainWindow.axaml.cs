@@ -37,6 +37,8 @@ namespace LogicAnalyzer
     {
         AnalyzerDriverBase? driver;
         CaptureSession session;
+        (CaptureProject Project, string? FileName)? pendingProject;
+        (AnalyzerDriverBase Device, CaptureProject Project, string? FileName)? lastCaptureProject;
 
         SigrokProvider? decoderProvider;
         public static MainWindow? Instance { get; private set; }
@@ -100,6 +102,8 @@ namespace LogicAnalyzer
             mnuNew.Click += MnuNew_Click;
             mnuOpen.Click += mnuOpen_Click;
             mnuSave.Click += mnuSave_Click;
+            mnuLoadProject.Click += MnuLoadProject_Click;
+            mnuSaveProject.Click += MnuSaveProject_Click;
             mnuExit.Click += MnuExit_Click;
             mnuExport.Click += MnuExport_Click;
             mnuNetSettings.Click += MnuNetSettings_Click;
@@ -1327,18 +1331,90 @@ namespace LogicAnalyzer
             await BeginCapture();
         }
 
+        private async void MnuLoadProject_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (await CaptureDialog.PickProjectAsync(this) is not { } loaded)
+                    return;
+
+                if (driver is { } device)
+                    CreateCaptureSettingsDialog(device).ApplyProject(loaded.Project, loaded.FileName);
+
+                pendingProject = loaded;
+                await this.ShowInfo("Project loaded", driver == null
+                    ? "Open a compatible analyzer, then click Capture to review the project settings."
+                    : "Click Capture to review the project settings.");
+            }
+            catch (Exception ex)
+            {
+                await this.ShowError("Cannot load project", ex.Message);
+            }
+        }
+
+        private async void MnuSaveProject_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var settings = pendingProject;
+                if (driver is { } device)
+                {
+                    var dialog = CreateCaptureSettingsDialog(device);
+                    if (settings is { } pending)
+                        dialog.ApplyProject(pending.Project, pending.FileName);
+
+                    settings = dialog.GetProject();
+                }
+
+                if (settings is not { } project || project.Project.Acquisition == null)
+                {
+                    await this.ShowInfo("Save project", "Open an analyzer to save its capture settings as a project.");
+                    return;
+                }
+
+                await CaptureDialog.SaveProjectAsync(this, project.Project, project.FileName);
+            }
+            catch (Exception ex)
+            {
+                await this.ShowError("Cannot save project", ex.Message);
+            }
+        }
+
+        private CaptureDialog CreateCaptureSettingsDialog(AnalyzerDriverBase device)
+        {
+            var dialog = new CaptureDialog();
+            dialog.Initialize(device);
+            if (lastCaptureProject is { } last && last.Device == device)
+                dialog.ApplyProject(last.Project, last.FileName);
+
+            return dialog;
+        }
+
         private async void btnCapture_Click(object? sender, RoutedEventArgs e)
         {
-            if (driver == null)
+            if (driver is not { } device)
                 return;
 
-            var dialog = new CaptureDialog();
-            
-            dialog.Initialize(driver);
+            var dialog = CreateCaptureSettingsDialog(device);
+            if (pendingProject is { } pending)
+            {
+                try
+                {
+                    dialog.ApplyProject(pending.Project, pending.FileName);
+                }
+                catch (InvalidDataException ex)
+                {
+                    await this.ShowError("Cannot apply project",
+                        $"{ex.Message} Choose a compatible device or load a different project in Capture settings.");
+                }
+            }
 
             if (!await dialog.ShowDialog<bool>(this))
                 return;
 
+            var project = dialog.GetProject();
+            lastCaptureProject = (device, project.Project, project.FileName);
+            pendingProject = null;
             session = dialog.SelectedSettings;
             //preserveSamples = false;
             

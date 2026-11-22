@@ -16,6 +16,9 @@
           <MenuItem Header="_Save..." Name="mnuSave" IsEnabled="False"/>
           <MenuItem Header="E_xport..." Name="mnuExport" IsEnabled="False"/>
           <Separator/>
+          <MenuItem Header="Load project…" Name="mnuLoadProject"/>
+          <MenuItem Header="Save project…" Name="mnuSaveProject"/>
+          <Separator/>
           <MenuItem Header="_Exit" Name="mnuExit"/>
         </MenuItem>
       <MenuItem Header="Network settings" IsEnabled="False" Name="mnuSettings">

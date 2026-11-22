@@ -46,7 +46,7 @@ namespace LogicAnalyzer.Classes
             }
         }
 
-        public static async Task<CaptureProject> LoadAsync(Stream input, int channelCount)
+        public static async Task<CaptureProject> LoadAsync(Stream input, int? channelCount = null)
         {
             using var document = await JsonDocument.ParseAsync(input);
             var root = document.RootElement;
@@ -64,10 +64,16 @@ namespace LogicAnalyzer.Classes
                 project.Channels.Select(c => c.Number).Distinct().Count() != project.Channels.Length)
                 throw new InvalidDataException("The file contains an invalid channel list.");
 
-            if (project.Channels.Any(c => c.Number >= channelCount))
-                throw new InvalidDataException($"The project needs {project.Channels.Max(c => c.Number) + 1L} channels. The current device provides {channelCount}.");
+            if (channelCount is int count)
+                project.ValidateChannelCount(count);
 
             return project;
+        }
+
+        public void ValidateChannelCount(int channelCount)
+        {
+            if (Channels.Any(c => c.Number >= channelCount))
+                throw new InvalidDataException($"The project needs {Channels.Max(c => c.Number) + 1L} channels. The current device provides {channelCount}.");
         }
 
         private static CaptureProject ReadNativeProject(JsonElement element)
