@@ -35,6 +35,9 @@ namespace LogicAnalyzer
 {
     public partial class MainWindow : PersistableWindowBase
     {
+        private const string CaptureDisplaySettingsFile = "captureDisplaySettings.json";
+        private sealed record CaptureDisplaySettings(bool PhysicalChannelLayout);
+
         AnalyzerDriverBase? driver;
         CaptureSession session;
         (CaptureProject Project, string? FileName)? pendingProject;
@@ -106,6 +109,9 @@ namespace LogicAnalyzer
             mnuSaveProject.Click += MnuSaveProject_Click;
             mnuExit.Click += MnuExit_Click;
             mnuExport.Click += MnuExport_Click;
+            mnuPhysicalChannelLayout.IsChecked =
+                AppSettingsManager.GetSettings<CaptureDisplaySettings>(CaptureDisplaySettingsFile)?.PhysicalChannelLayout ?? false;
+            mnuPhysicalChannelLayout.PropertyChanged += PhysicalChannelLayout_PropertyChanged;
             mnuNetSettings.Click += MnuNetSettings_Click;
             mnuDocs.Click += MnuDocs_Click;
             mnuAbout.Click += MnuAbout_Click;
@@ -605,7 +611,7 @@ namespace LogicAnalyzer
         {
             var dlg = new CaptureDialog();
             var drv = new EmulatedAnalyzerDriver(5);
-            dlg.Initialize(drv);
+            dlg.Initialize(drv, mnuPhysicalChannelLayout.IsChecked);
 
             if(await dlg.ShowDialog<bool>(this))
             {
@@ -921,6 +927,12 @@ namespace LogicAnalyzer
             dlg.SetData(names, session.CaptureChannels.Select(c => c.Samples != null ? c.Samples.Skip(e.FirstSample).Take(e.SampleCount).ToArray() : new byte[0]), session.Frequency);
             await dlg.ShowDialog(this);
 
+        }
+
+        private void PhysicalChannelLayout_PropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+        {
+            if (e.Property == MenuItem.IsCheckedProperty)
+                AppSettingsManager.PersistSettings(CaptureDisplaySettingsFile, new CaptureDisplaySettings(mnuPhysicalChannelLayout.IsChecked));
         }
 
         private async void MnuNetSettings_Click(object? sender, RoutedEventArgs e)
@@ -1383,7 +1395,7 @@ namespace LogicAnalyzer
         private CaptureDialog CreateCaptureSettingsDialog(AnalyzerDriverBase device)
         {
             var dialog = new CaptureDialog();
-            dialog.Initialize(device);
+            dialog.Initialize(device, mnuPhysicalChannelLayout.IsChecked);
             if (lastCaptureProject is { } last && last.Device == device)
                 dialog.ApplyProject(last.Project, last.FileName);
 

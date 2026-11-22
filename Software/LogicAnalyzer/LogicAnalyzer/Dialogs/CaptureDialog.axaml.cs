@@ -137,10 +137,10 @@ namespace LogicAnalyzer.Dialogs
 
         }
 
-        public void Initialize(AnalyzerDriverBase Driver)
+        public void Initialize(AnalyzerDriverBase Driver, bool physicalChannelLayout = false)
         {
             driver = Driver;
-            InitializeControlArrays(driver.ChannelCount);
+            InitializeControlArrays(physicalChannelLayout);
             InitializeParameters();
             LoadSettings(driver.DriverType);
             CheckMode();
@@ -209,7 +209,7 @@ namespace LogicAnalyzer.Dialogs
             this.FixStartupPosition();
         }
 
-        private StackPanel CreateChannelRow(int FirstChannel, List<ChannelSelector> Selectors)
+        private StackPanel CreateChannelRow(ChannelSelector[] channels)
         {
             StackPanel panel = new StackPanel();
             panel.Orientation = Avalonia.Layout.Orientation.Horizontal;
@@ -222,7 +222,7 @@ namespace LogicAnalyzer.Dialogs
 
             Button btnSelAll = new Button { FontFamily = font, Content = "", FontSize = 16 };
             btnSelAll.SetValue(Grid.RowProperty, 0);
-            btnSelAll.Click += (s, e) => { foreach (var ch in captureChannels.Where(c => c.ChannelNumber >= FirstChannel && c.ChannelNumber < FirstChannel + 8)) ch.Enabled = true; };
+            btnSelAll.Click += (s, e) => { foreach (var ch in channels) ch.Enabled = true; };
             btnSelAll.Margin = new Thickness(0, 0, 0, 0);
             btnSelAll.Padding = new Thickness(0, 0, 0, 0);
             btnSelAll.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
@@ -232,7 +232,7 @@ namespace LogicAnalyzer.Dialogs
 
             Button btnSelNone = new Button { FontFamily = font, Content = "", FontSize = 16 };
             btnSelNone.SetValue(Grid.RowProperty, 1);
-            btnSelNone.Click += (s, e) => { foreach (var ch in captureChannels.Where(c => c.ChannelNumber >= FirstChannel && c.ChannelNumber < FirstChannel + 8)) ch.Enabled = false; };
+            btnSelNone.Click += (s, e) => { foreach (var ch in channels) ch.Enabled = false; };
             btnSelNone.Margin = new Thickness(0, 0, 0, 0);
             btnSelNone.Padding = new Thickness(5, 0, 5, 0);
             btnSelNone.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
@@ -242,7 +242,7 @@ namespace LogicAnalyzer.Dialogs
 
             Button btnSelInv = new Button { FontFamily = font, Content = "", FontSize = 16 };
             btnSelInv.SetValue(Grid.RowProperty, 2);
-            btnSelInv.Click += (s, e) => { foreach (var ch in captureChannels.Where(c => c.ChannelNumber >= FirstChannel && c.ChannelNumber < FirstChannel + 8)) ch.Enabled = !ch.Enabled; };
+            btnSelInv.Click += (s, e) => { foreach (var ch in channels) ch.Enabled = !ch.Enabled; };
             btnSelInv.Margin = new Thickness(0, 0, 0, 0);
             btnSelInv.Padding = new Thickness(0, 0, 0, 0);
             btnSelInv.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
@@ -267,29 +267,67 @@ namespace LogicAnalyzer.Dialogs
 
             panel.Children.Add(brdSel);
 
-            for (int buc = 0; buc < 8 && FirstChannel + buc < driver.ChannelCount; buc++)
-            {
-                var channel = new ChannelSelector { ChannelNumber = (byte)(FirstChannel + buc) };
+            foreach (var channel in channels)
                 panel.Children.Add(channel);
-                channel.Selected += Channel_Selected;
-                channel.Deselected += Channel_Deselected;
-                channel.ChangeColor += Channel_ChangeColor;
-                Selectors.Add(channel);
-            }
 
             return panel;
         }
 
-        private void InitializeControlArrays(int ChannelCount)
+        private void InitializeControlArrays(bool physicalChannelLayout)
         {
-            List<ChannelSelector> channels = new List<ChannelSelector>();
+            const int picoChannels = 24;
+            int channelCount = driver.ChannelCount;
+            int channelsPerDevice = driver switch
+            {
+                MultiAnalyzerDriver multi => multi.ChannelsPerDevice,
+                EmulatedAnalyzerDriver => picoChannels,
+                _ => channelCount
+            };
+            bool usePhysicalLayout = physicalChannelLayout && channelsPerDevice == picoChannels &&
+                channelCount % picoChannels == 0;
 
-            for (int firstChan = 0; firstChan < ChannelCount; firstChan += 8)
-                pnlChannels.Children.Add(CreateChannelRow(firstChan, channels));
+            // Settings files, trigger logic, and capture requests index this array by channel number.
+            captureChannels = new ChannelSelector[channelCount];
+            for (int number = 0; number < channelCount; number++)
+            {
+                var channel = new ChannelSelector { ChannelNumber = (byte)number };
+                if (usePhysicalLayout)
+                    channel.UseCompactLayout();
 
-            int maxTrigger = Math.Min(24, ChannelCount);
+                channel.Selected += Channel_Selected;
+                channel.Deselected += Channel_Deselected;
+                channel.ChangeColor += Channel_ChangeColor;
+                captureChannels[number] = channel;
+            }
 
-            captureChannels = channels.ToArray();
+            if (usePhysicalLayout)
+            {
+                for (int firstChannel = 0; firstChannel < channelCount; firstChannel += picoChannels)
+                {
+                    int middleChannel = firstChannel + picoChannels / 2;
+                    int lastChannel = firstChannel + picoChannels;
+
+                    var devicePanel = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+                    devicePanel.Children.Add(new TextBlock
+                    {
+                        Text = $"Analyzer {firstChannel / picoChannels + 1}",
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                        Margin = new Thickness(0, 0, 0, 4)
+                    });
+                    devicePanel.Children.Add(CreateChannelRow(captureChannels[firstChannel..middleChannel]));
+                    var bottomRow = captureChannels[middleChannel..lastChannel];
+                    Array.Reverse(bottomRow);
+                    devicePanel.Children.Add(CreateChannelRow(bottomRow));
+                    pnlChannels.Children.Add(devicePanel);
+                }
+            }
+            else
+            {
+                foreach (var row in captureChannels.Chunk(8))
+                    pnlChannels.Children.Add(CreateChannelRow(row));
+            }
+
+            int maxTrigger = Math.Min(picoChannels, channelCount);
             triggerChannels = Enumerable.Range(0, maxTrigger).Select(i => this.FindControl<RadioButton>($"rbTrigger{i + 1}")).ToArray()!;
         }
 

@@ -31,7 +31,8 @@ namespace SharedDriver
         public override bool IsCapturing { get { return capturing; } }
         public override bool IsNetwork { get { return false; } }
         public override string? DeviceVersion { get { return version; } }
-        public override int ChannelCount { get { return connectedDevices.Min(d => d.ChannelCount) * connectedDevices.Length; } }
+        public int ChannelsPerDevice => connectedDevices.Min(d => d.ChannelCount);
+        public override int ChannelCount => ChannelsPerDevice * connectedDevices.Length;
         public override int MaxFrequency { get { return connectedDevices.Min(d => d.MaxFrequency); } }
         public override int MinFrequency { get { return connectedDevices.Max(d => d.MinFrequency); } }
         public override int BufferSize { get { return connectedDevices.Min(d => d.BufferSize); } }
@@ -298,7 +299,7 @@ namespace SharedDriver
 
                 if (tempCapture.All(c => c.Completed))
                 {
-                    var maxChanPerDev = connectedDevices.Min(c => c.ChannelCount);
+                    var maxChanPerDev = ChannelsPerDevice;
 
                     for (int buc = 0; buc < tempCapture.Length; buc++)
                     {
@@ -351,7 +352,7 @@ namespace SharedDriver
         {
             List<int[]> channelsPerDevice = new List<int[]>();
 
-            var maxChanPerDev = connectedDevices.Min(c => c.ChannelCount);
+            var maxChanPerDev = ChannelsPerDevice;
 
             for (int buc = 0; buc < connectedDevices.Length; buc++)
             {

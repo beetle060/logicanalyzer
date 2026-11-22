@@ -21,6 +21,9 @@
           <Separator/>
           <MenuItem Header="_Exit" Name="mnuExit"/>
         </MenuItem>
+      <MenuItem Header="Settings">
+        <MenuItem Header="Physical channel layout" Name="mnuPhysicalChannelLayout" ToggleType="CheckBox"/>
+      </MenuItem>
       <MenuItem Header="Network settings" IsEnabled="False" Name="mnuSettings">
         <MenuItem Header="Update network settings" Name="mnuNetSettings"></MenuItem>
       </MenuItem>
